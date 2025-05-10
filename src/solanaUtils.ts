@@ -7,7 +7,6 @@ import {
   Connection,
   VersionedTransaction,
   TransactionMessage,
-  SystemProgram,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { AppInstruction, AppAccountMeta } from './types';
@@ -54,7 +53,7 @@ const toWeb3AccountMeta = (appAccount: AppAccountMeta): AccountMeta => {
       isWritable: appAccount.isWritable,
     };
   } catch (error) {
-    throw new Error(`Invalid public key format for account: ${appAccount.pubkey}. ${error.message}`);
+    throw new Error(`Invalid public key format for account: ${appAccount.pubkey}. ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
 
@@ -85,7 +84,6 @@ export const createTransaction = async (
   payer: PublicKey,
   computeUnitPrice?: number, // Optional compute unit price in microLamports
   computeUnitLimit?: number,   // Optional compute unit limit
-  skipPreflight?: boolean // Add skipPreflight parameter
 ): Promise<VersionedTransaction> => {
   let finalInstructions = [...instructions];
 

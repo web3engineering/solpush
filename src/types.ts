@@ -1,5 +1,3 @@
-import { PublicKey } from '@solana/web3.js';
-
 // Using string for PublicKey fields for easier form handling initially.
 // These will be converted to PublicKey objects when building the transaction.
 

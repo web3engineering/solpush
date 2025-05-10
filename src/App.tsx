@@ -1,14 +1,11 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import GlobalSettings from './components/GlobalSettings';
 import InstructionEditor from './components/InstructionEditor';
-import { AppInstruction, GlobalSettingsState, AppAccountMeta } from './types';
+import { AppInstruction, GlobalSettingsState } from './types';
 import {
   Connection,
   Keypair,
   PublicKey,
-  TransactionInstruction as Web3TransactionInstruction,
-  VersionedTransaction,
-  TransactionMessage,
 } from '@solana/web3.js';
 import {
   getKeypairFromBs58,
