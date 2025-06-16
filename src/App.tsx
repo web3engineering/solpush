@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import GlobalSettings from './components/GlobalSettings';
 import InstructionEditor from './components/InstructionEditor';
 import { AppInstruction, GlobalSettingsState } from './types';
@@ -15,14 +15,45 @@ import {
 import { useWallet, WalletContextState } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 
+
+interface TemplateData {
+  globalSettings: Pick<GlobalSettingsState, 'rpcAddress' | 'computeUnitPrice' | 'computeUnitLimit' | 'skipPreflight'>;
+  instructions: AppInstruction[];
+}
+
 function App() {
   const [globalSettings, setGlobalSettings] = useState<GlobalSettingsState>({
     privateKeys: '',
     rpcAddress: 'https://api.mainnet-beta.solana.com',
-    computeUnitPrice: '', 
+    computeUnitPrice: '',
     computeUnitLimit: '',
     skipPreflight: true,
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rpcAddressParam = params.get('rpcAddress');
+    const computeUnitPriceParam = params.get('computeUnitPrice');
+    const computeUnitLimitParam = params.get('computeUnitLimit');
+    const instructionsParam = params.get('instructions');
+    const skipPreflightParam = params.get('skipPreflight');
+    setGlobalSettings(prev => ({
+      ...prev,
+      rpcAddress: rpcAddressParam ?? prev.rpcAddress,
+      computeUnitPrice: computeUnitPriceParam ?? prev.computeUnitPrice,
+      computeUnitLimit: computeUnitLimitParam ?? prev.computeUnitLimit,
+      skipPreflight: skipPreflightParam !== null ? skipPreflightParam === 'true' : prev.skipPreflight,
+    }));
+    if (instructionsParam) {
+      try {
+        const decoded = atob(instructionsParam);
+        const parsed: AppInstruction[] = JSON.parse(decoded);
+        setInstructions(parsed);
+      } catch (e) {
+        // ignore errors
+      }
+    }
+  }, []);
 
   const { publicKey: walletPublicKey, signTransaction, connected } = useWallet() as WalletContextState;
 
@@ -35,6 +66,68 @@ function App() {
     new Connection(globalSettings.rpcAddress, 'confirmed'), 
     [globalSettings.rpcAddress]
   );
+
+  const [shareCopied, setShareCopied] = useState(false);
+
+
+  const TEMPLATES_KEY = 'solpush_templates';
+  const [templates, setTemplates] = useState<{ [name: string]: TemplateData }>(() => {
+    const raw = localStorage.getItem(TEMPLATES_KEY);
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch {}
+    }
+    return {};
+  });
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [saveName, setSaveName] = useState('');
+
+
+  useEffect(() => {
+    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+  }, [templates]);
+
+
+  const handleSaveTemplate = () => {
+    if (!saveName.trim()) return;
+    setTemplates(prev => ({
+      ...prev,
+      [saveName]: {
+        globalSettings: {
+          rpcAddress: globalSettings.rpcAddress,
+          computeUnitPrice: globalSettings.computeUnitPrice,
+          computeUnitLimit: globalSettings.computeUnitLimit,
+          skipPreflight: globalSettings.skipPreflight,
+        },
+        instructions,
+      },
+    }));
+    setSaveName('');
+  };
+
+
+  const handleSelectTemplate = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const name = e.target.value;
+    setSelectedTemplate(name);
+    if (name && templates[name]) {
+      setGlobalSettings(prev => ({
+        ...prev,
+        ...templates[name].globalSettings,
+      }));
+      setInstructions(templates[name].instructions);
+    }
+  };
+
+
+  const handleDeleteTemplate = (name: string) => {
+    setTemplates(prev => {
+      const copy = { ...prev };
+      delete copy[name];
+      return copy;
+    });
+    if (selectedTemplate === name) setSelectedTemplate('');
+  };
 
   const handleSettingsChange = useCallback(<K extends keyof GlobalSettingsState>(
     key: K,
@@ -68,6 +161,25 @@ function App() {
     setError(null);
     setTransactionSignature(null);
   }, []);
+
+  const handleShare = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('rpcAddress', globalSettings.rpcAddress);
+    url.searchParams.set('computeUnitPrice', globalSettings.computeUnitPrice.toString());
+    url.searchParams.set('computeUnitLimit', globalSettings.computeUnitLimit.toString());
+    url.searchParams.set('skipPreflight', globalSettings.skipPreflight.toString());
+
+    try {
+      const instructionsJson = JSON.stringify(instructions);
+      const instructionsBase64 = btoa(instructionsJson);
+      url.searchParams.set('instructions', instructionsBase64);
+    } catch (e) {
+
+    }
+    await navigator.clipboard.writeText(url.toString());
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 1500);
+  };
 
   const handleSendTransaction = async () => {
     setIsLoading(true);
@@ -222,6 +334,36 @@ function App() {
               index={index}
             />
           ))}
+        </div>
+
+
+        <div style={{ margin: '24px 0', textAlign: 'left', background: '#f6fff6', border: '1px solid #dcdcdc', borderRadius: 8, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <select value={selectedTemplate} onChange={handleSelectTemplate} style={{ fontSize: '1.1em', padding: '8px 16px', borderRadius: 6 }}>
+              <option value="">Select template...</option>
+              {Object.keys(templates).map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            {selectedTemplate && (
+              <button style={{ background: '#fdecec', color: '#c53030', border: '1px solid #fbcaca', borderRadius: 4, padding: '8px 14px', fontWeight: 600 }} onClick={() => handleDeleteTemplate(selectedTemplate)}>Delete</button>
+            )}
+            <input
+              type="text"
+              placeholder="Template name"
+              value={saveName}
+              onChange={e => setSaveName(e.target.value)}
+              style={{ fontSize: '1.1em', padding: '8px 12px', borderRadius: 6, minWidth: 180 }}
+            />
+            <button className="share-btn" style={{ minWidth: 120 }} onClick={handleSaveTemplate}>Save to library</button>
+          </div>
+        </div>
+
+        <div style={{ margin: '24px 0', textAlign: 'left' }}>
+          <button type="button" className="share-btn" onClick={handleShare}>
+            SHARE
+          </button>
+          {shareCopied && <span style={{ marginLeft: '18px', color: 'green', fontWeight: 600, fontSize: '1.1em' }}>The link has been copied!</span>}
         </div>
 
         <div className="send-section section-container">

@@ -274,4 +274,32 @@ body {
 
 .wallet-button-container .wallet-adapter-button-trigger:hover {
   background-color: #8fbcac;
+}
+
+.share-btn {
+  background-color: #4CAF50;
+  color: #fff;
+  font-size: 1.3em;
+  font-weight: bold;
+  padding: 10px 40px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.15);
+  transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
+  letter-spacing: 1px;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.share-btn:hover {
+  background-color: #388e3c;
+  transform: scale(1.04);
+  box-shadow: 0 6px 24px rgba(56, 142, 60, 0.18);
+}
+
+.share-btn:active {
+  background-color: #256029;
+  transform: scale(0.97);
+  box-shadow: 0 2px 8px rgba(37, 96, 41, 0.12);
 } 
