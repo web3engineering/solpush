@@ -1,0 +1,1 @@
+export const DEFAULT_RPC = 'https://discipling-dominoes-bthnwjyyua-dedicated.helius-rpc.com?api-key=535a5f6d-84ad-4588-834a-6df73c1fa7a6'; 

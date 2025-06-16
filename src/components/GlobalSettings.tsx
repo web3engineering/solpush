@@ -1,5 +1,6 @@
 import React from 'react';
 import { GlobalSettingsState } from '../types';
+import { DEFAULT_RPC } from '../config';
 
 interface GlobalSettingsProps {
   settings: GlobalSettingsState;
@@ -14,6 +15,10 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSettingsCha
 
   const handleRpcAddressChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     onSettingsChange('rpcAddress', event.target.value);
+  };
+
+  const handleResetRpc = () => {
+    onSettingsChange('rpcAddress', DEFAULT_RPC);
   };
 
   const handleComputeUnitPriceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,13 +50,25 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({ settings, onSettingsCha
 
       <div className="form-group">
         <label htmlFor="rpcAddress">RPC Address:</label>
-        <input
-          type="text"
-          id="rpcAddress"
-          value={settings.rpcAddress}
-          onChange={handleRpcAddressChange}
-          placeholder="e.g., https://api.mainnet-beta.solana.com"
-        />
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <input
+            type="text"
+            id="rpcAddress"
+            value={settings.rpcAddress}
+            onChange={handleRpcAddressChange}
+            placeholder="e.g., https://api.mainnet-beta.solana.com"
+            style={{ flex: 1 }}
+          />
+          {settings.rpcAddress !== DEFAULT_RPC && (
+            <button 
+              onClick={handleResetRpc} 
+              className="small-btn"
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              Reset to Default
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="form-group">

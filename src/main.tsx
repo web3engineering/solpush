@@ -1,3 +1,4 @@
+import './polyfills';
 import React, { useMemo } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
@@ -28,7 +29,7 @@ const Main = () => {
 
   const wallets = useMemo(
     () => [
-      new PhantomWalletAdapter(),
+      new PhantomWalletAdapter({ network }),
       new SolflareWalletAdapter({ network }),
       // Add more wallets here
     ],
@@ -38,7 +39,7 @@ const Main = () => {
   return (
     <React.StrictMode>
       <ConnectionProvider endpoint={endpoint}>
-        <WalletProvider wallets={wallets} autoConnect>
+        <WalletProvider wallets={wallets} autoConnect={false}>
           <WalletModalProvider>
             <App />
           </WalletModalProvider>
