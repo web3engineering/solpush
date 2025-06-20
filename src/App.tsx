@@ -135,26 +135,76 @@ function App() {
     }
   }, [globalSettings.rpcAddress]);
 
+  const handleCreateDiversPayment = useCallback(() => {
+    try {
+      const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
+
+      const amount = 0.0001 * LAMPORTS_PER_SOL;
+      console.log('Amount in lamports:', amount);
+      console.log('Amount in hex:', amount.toString(16).padStart(16, '0'));
+
+      const newInstruction: AppInstruction = {
+        id: Date.now().toString(),
+        programId: SystemProgram.programId.toBase58(),
+        accounts: [
+          {
+            id: '1',
+            pubkey: walletPublicKey?.toBase58() || '',
+            isSigner: true,
+            isWritable: true
+          },
+          {
+            id: '2',
+            pubkey: diversAddress.toBase58(),
+            isSigner: false,
+            isWritable: true
+          }
+        ],
+        data: '0200000000000000' + amount.toString(16).padStart(16, '0')
+      };
+
+      setInstructions(prev => {
+        const existingDiversPayment = prev.find(inst =>
+          inst.programId === SystemProgram.programId.toBase58() &&
+          inst.accounts.some(acc => acc.pubkey === diversAddress.toBase58())
+        );
+        if (existingDiversPayment) {
+          return prev;
+        }
+        return [...prev, newInstruction]
+      });
+      setError(null);
+    } catch (error) {
+      setError(`Error creating Diver's payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [walletPublicKey]);
+
   const handleSettingsChange = useCallback(<K extends keyof GlobalSettingsState>(
     key: K,
     value: GlobalSettingsState[K]
   ) => {
     setGlobalSettings(prev => {
       const newSettings = { ...prev, [key]: value };
-      
-      if (key === 'rpcAddress' && value === DEFAULT_RPC && prev.rpcAddress !== DEFAULT_RPC) {
-        const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
-        const existingDiversPayment = instructions.find(inst => 
-          inst.programId === SystemProgram.programId.toBase58() && 
-          inst.accounts.some(acc => acc.pubkey === diversAddress.toBase58())
-        );
 
-        if (!existingDiversPayment && !isCreatingDiversPayment.current) {
-          isCreatingDiversPayment.current = true;
-          handleCreateDiversPayment();
-          setTimeout(() => {
-            isCreatingDiversPayment.current = false;
-          }, 0);
+      if (key === 'rpcAddress') {
+        const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
+        
+        if (value === DEFAULT_RPC && prev.rpcAddress !== DEFAULT_RPC) {
+          // Add payment back if switching to default RPC
+          if (!isCreatingDiversPayment.current) {
+            isCreatingDiversPayment.current = true;
+            handleCreateDiversPayment();
+            setTimeout(() => {
+              isCreatingDiversPayment.current = false;
+            }, 0);
+          }
+        } else if (value !== DEFAULT_RPC && prev.rpcAddress === DEFAULT_RPC) {
+          // Remove payment if switching away from default RPC
+          setInstructions(currentInstructions => currentInstructions.filter(inst => {
+            const isDiversPayment = inst.programId === SystemProgram.programId.toBase58() &&
+                                  inst.accounts.some(acc => acc.pubkey === diversAddress.toBase58());
+            return !isDiversPayment;
+          }));
         }
       }
       
@@ -162,7 +212,7 @@ function App() {
     });
     setError(null);
     setTransactionSignature(null);
-  }, [instructions]);
+  }, [handleCreateDiversPayment]);
 
   const addInstruction = useCallback(() => {
     const newInstruction: AppInstruction = {
@@ -269,49 +319,6 @@ function App() {
       setError(`Error creating ATA: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, [tokenMint, tokenOwner, walletPublicKey]);
-
-  const handleCreateDiversPayment = useCallback(() => {
-    try {
-      const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
-      const existingDiversPayment = instructions.find(inst => 
-        inst.programId === SystemProgram.programId.toBase58() && 
-        inst.accounts.some(acc => acc.pubkey === diversAddress.toBase58())
-      );
-
-      if (existingDiversPayment) {
-        return; 
-      }
-
-      const amount = 0.0001 * LAMPORTS_PER_SOL;
-      console.log('Amount in lamports:', amount);
-      console.log('Amount in hex:', amount.toString(16).padStart(16, '0'));
-
-      const newInstruction: AppInstruction = {
-        id: Date.now().toString(),
-        programId: SystemProgram.programId.toBase58(),
-        accounts: [
-          {
-            id: '1',
-            pubkey: walletPublicKey?.toBase58() || '', 
-            isSigner: true,
-            isWritable: true
-          },
-          {
-            id: '2',
-            pubkey: diversAddress.toBase58(),
-            isSigner: false,
-            isWritable: true
-          }
-        ],
-        data: '0200000000000000' + amount.toString(16).padStart(16, '0')
-      };
-
-      setInstructions(prev => [...prev, newInstruction]);
-      setError(null);
-    } catch (error) {
-      setError(`Error creating Diver's payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }, [walletPublicKey, instructions]);
 
   const handleSendTransaction = async () => {
     setIsLoading(true);
