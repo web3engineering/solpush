@@ -41,13 +41,19 @@ function App() {
       const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
       const amount = 0.0001 * LAMPORTS_PER_SOL;
 
+      const dataBuffer = Buffer.alloc(12);
+      dataBuffer.writeUInt32LE(2, 0); 
+      dataBuffer.writeBigUInt64LE(BigInt(amount), 4);
+      const dataHex = dataBuffer.toString('hex');
+      console.log('Initial payment data hex:', dataHex);
+      
       return {
         id: Date.now().toString(),
         programId: SystemProgram.programId.toBase58(),
         accounts: [
           {
             id: '1',
-            pubkey: walletPublicKey?.toBase58() || '', 
+            pubkey: walletPublicKey?.toBase58() || '',
             isSigner: true,
             isWritable: true
           },
@@ -58,7 +64,7 @@ function App() {
             isWritable: true
           }
         ],
-        data: '0200000000000000' + amount.toString(16).padStart(16, '0')
+        data: dataHex
       };
     } catch (error) {
       console.error('Error creating initial divers payment:', error);
@@ -138,10 +144,13 @@ function App() {
   const handleCreateDiversPayment = useCallback(() => {
     try {
       const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
-
       const amount = 0.0001 * LAMPORTS_PER_SOL;
-      console.log('Amount in lamports:', amount);
-      console.log('Amount in hex:', amount.toString(16).padStart(16, '0'));
+
+      const dataBuffer = Buffer.alloc(12);
+      dataBuffer.writeUInt32LE(2, 0);
+      dataBuffer.writeBigUInt64LE(BigInt(amount), 4); 
+      const dataHex = dataBuffer.toString('hex');
+
 
       const newInstruction: AppInstruction = {
         id: Date.now().toString(),
@@ -160,7 +169,7 @@ function App() {
             isWritable: true
           }
         ],
-        data: '0200000000000000' + amount.toString(16).padStart(16, '0')
+        data: dataHex
       };
 
       setInstructions(prev => {
