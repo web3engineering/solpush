@@ -17,7 +17,7 @@ import {
 import { useWallet, WalletContextState } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
-import { DEFAULT_RPC } from './config';
+import { DEFAULT_RPC, DIVERS_ADDRESS } from './config';
 
 interface TemplateData {
   globalSettings: Pick<GlobalSettingsState, 'rpcAddress' | 'computeUnitPrice' | 'computeUnitLimit' | 'skipPreflight'>;
@@ -36,36 +36,38 @@ function App() {
   const { publicKey: walletPublicKey, signTransaction, connected } = useWallet() as WalletContextState;
   const isCreatingDiversPayment = useRef(false);
 
+  function createPaymentIx(walletPublicKey: PublicKey | null) {
+    const diversAddress = new PublicKey(DIVERS_ADDRESS);
+    const amount = 0.0001 * LAMPORTS_PER_SOL;
+    const dataBuffer = Buffer.alloc(12);
+    dataBuffer.writeUInt32LE(2, 0);
+    dataBuffer.writeBigUInt64LE(BigInt(amount), 4);
+    const dataHex = dataBuffer.toString('hex');
+    return {
+      id: Date.now().toString(),
+      programId: SystemProgram.programId.toBase58(),
+      accounts: [
+        {
+          id: '1',
+          pubkey: walletPublicKey?.toBase58() || '',
+          isSigner: true,
+          isWritable: true
+        },
+        {
+          id: '2',
+          pubkey: diversAddress.toBase58(),
+          isSigner: false,
+          isWritable: true
+        }
+      ],
+      data: dataHex,
+      description: `Instruction for Diver's RPC payment to ${diversAddress.toBase58()} by ${walletPublicKey?.toBase58() || ''}`
+    };
+  }
+
   const createInitialDiversPayment = useCallback(() => {
     try {
-      const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
-      const amount = 0.0001 * LAMPORTS_PER_SOL;
-
-      const dataBuffer = Buffer.alloc(12);
-      dataBuffer.writeUInt32LE(2, 0); 
-      dataBuffer.writeBigUInt64LE(BigInt(amount), 4);
-      const dataHex = dataBuffer.toString('hex');
-      console.log('Initial payment data hex:', dataHex);
-      
-      return {
-        id: Date.now().toString(),
-        programId: SystemProgram.programId.toBase58(),
-        accounts: [
-          {
-            id: '1',
-            pubkey: walletPublicKey?.toBase58() || '',
-            isSigner: true,
-            isWritable: true
-          },
-          {
-            id: '2',
-            pubkey: diversAddress.toBase58(),
-            isSigner: false,
-            isWritable: true
-          }
-        ],
-        data: dataHex
-      };
+      return createPaymentIx(walletPublicKey);
     } catch (error) {
       console.error('Error creating initial divers payment:', error);
       return null;
@@ -143,39 +145,11 @@ function App() {
 
   const handleCreateDiversPayment = useCallback(() => {
     try {
-      const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
-      const amount = 0.0001 * LAMPORTS_PER_SOL;
-
-      const dataBuffer = Buffer.alloc(12);
-      dataBuffer.writeUInt32LE(2, 0);
-      dataBuffer.writeBigUInt64LE(BigInt(amount), 4); 
-      const dataHex = dataBuffer.toString('hex');
-
-
-      const newInstruction: AppInstruction = {
-        id: Date.now().toString(),
-        programId: SystemProgram.programId.toBase58(),
-        accounts: [
-          {
-            id: '1',
-            pubkey: walletPublicKey?.toBase58() || '',
-            isSigner: true,
-            isWritable: true
-          },
-          {
-            id: '2',
-            pubkey: diversAddress.toBase58(),
-            isSigner: false,
-            isWritable: true
-          }
-        ],
-        data: dataHex
-      };
-
+      const newInstruction: AppInstruction = createPaymentIx(walletPublicKey);
       setInstructions(prev => {
         const existingDiversPayment = prev.find(inst =>
           inst.programId === SystemProgram.programId.toBase58() &&
-          inst.accounts.some(acc => acc.pubkey === diversAddress.toBase58())
+          inst.accounts.some(acc => acc.pubkey === DIVERS_ADDRESS)
         );
         if (existingDiversPayment) {
           return prev;
@@ -194,10 +168,8 @@ function App() {
   ) => {
     setGlobalSettings(prev => {
       const newSettings = { ...prev, [key]: value };
-
+      
       if (key === 'rpcAddress') {
-        const diversAddress = new PublicKey('J78SNwDW6G86sMmh7djnBKGjewXNpjD74sJTjJ1iNgTH');
-        
         if (value === DEFAULT_RPC && prev.rpcAddress !== DEFAULT_RPC) {
           // Add payment back if switching to default RPC
           if (!isCreatingDiversPayment.current) {
@@ -211,12 +183,12 @@ function App() {
           // Remove payment if switching away from default RPC
           setInstructions(currentInstructions => currentInstructions.filter(inst => {
             const isDiversPayment = inst.programId === SystemProgram.programId.toBase58() &&
-                                  inst.accounts.some(acc => acc.pubkey === diversAddress.toBase58());
+                                  inst.accounts.some(acc => acc.pubkey === DIVERS_ADDRESS);
             return !isDiversPayment;
           }));
         }
       }
-      
+
       return newSettings;
     });
     setError(null);
@@ -316,7 +288,8 @@ function App() {
             isWritable: false
           }
         ],
-        data: '' 
+        data: '',
+        description: `Instruction for ATA creation for wallet ${ownerPubkey} to hold token ${mintPubkey.toBase58()}, paid by ${walletPublicKey?.toBase58() || ''}`
       };
 
       setInstructions(prev => [...prev, newInstruction]);

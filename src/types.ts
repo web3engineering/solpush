@@ -13,6 +13,7 @@ export interface AppInstruction {
   programId: string;
   accounts: AppAccountMeta[];
   data: string; // Will accept HEX or ASCII, to be converted to Buffer
+  description?: string; 
 }
 
 export interface GlobalSettingsState {
