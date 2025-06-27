@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import GlobalSettings from './components/GlobalSettings';
 import InstructionEditor from './components/InstructionEditor';
 import { AppInstruction, GlobalSettingsState } from './types';
@@ -6,6 +6,8 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import {
   getKeypairFromBs58,
@@ -14,36 +16,184 @@ import {
 } from './solanaUtils';
 import { useWallet, WalletContextState } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
+import { DEFAULT_RPC, DIVERS_ADDRESS } from './config';
+
+interface TemplateData {
+  globalSettings: Pick<GlobalSettingsState, 'rpcAddress' | 'computeUnitPrice' | 'computeUnitLimit' | 'skipPreflight'>;
+  instructions: AppInstruction[];
+}
 
 function App() {
   const [globalSettings, setGlobalSettings] = useState<GlobalSettingsState>({
     privateKeys: '',
-    rpcAddress: 'https://api.mainnet-beta.solana.com',
+    rpcAddress: DEFAULT_RPC,
     computeUnitPrice: '', 
     computeUnitLimit: '',
     skipPreflight: true,
   });
 
   const { publicKey: walletPublicKey, signTransaction, connected } = useWallet() as WalletContextState;
+  const isCreatingDiversPayment = useRef(false);
 
-  const [instructions, setInstructions] = useState<AppInstruction[]>([]);
+  function createPaymentIx(walletPublicKey: PublicKey | null) {
+    const diversAddress = new PublicKey(DIVERS_ADDRESS);
+    const amount = 0.0001 * LAMPORTS_PER_SOL;
+    const dataBuffer = Buffer.alloc(12);
+    dataBuffer.writeUInt32LE(2, 0);
+    dataBuffer.writeBigUInt64LE(BigInt(amount), 4);
+    const dataHex = dataBuffer.toString('hex');
+    return {
+      id: Date.now().toString(),
+      programId: SystemProgram.programId.toBase58(),
+      accounts: [
+        {
+          id: '1',
+          pubkey: walletPublicKey?.toBase58() || '',
+          isSigner: true,
+          isWritable: true
+        },
+        {
+          id: '2',
+          pubkey: diversAddress.toBase58(),
+          isSigner: false,
+          isWritable: true
+        }
+      ],
+      data: dataHex,
+      description: `Instruction for Diver's RPC payment to ${diversAddress.toBase58()} by ${walletPublicKey?.toBase58() || ''}`
+    };
+  }
+
+  const createInitialDiversPayment = useCallback(() => {
+    try {
+      return createPaymentIx(walletPublicKey);
+    } catch (error) {
+      console.error('Error creating initial divers payment:', error);
+      return null;
+    }
+  }, [walletPublicKey]);
+
+  const [instructions, setInstructions] = useState<AppInstruction[]>(() => {
+    const initialInstruction = createInitialDiversPayment();
+    return initialInstruction ? [initialInstruction] : [];
+  });
+
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [showATAModal, setShowATAModal] = useState(false);
+  const [tokenMint, setTokenMint] = useState('');
+  const [tokenOwner, setTokenOwner] = useState('');
+  const [shareCopied, setShareCopied] = useState(false);
 
-  const connection = useMemo(() => 
-    new Connection(globalSettings.rpcAddress, 'confirmed'), 
-    [globalSettings.rpcAddress]
-  );
+  const TEMPLATES_KEY = 'solpush_templates';
+  const [templates, setTemplates] = useState<{ [name: string]: TemplateData }>(() => {
+    const raw = localStorage.getItem(TEMPLATES_KEY);
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch {}
+    }
+    return {};
+  });
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [saveName, setSaveName] = useState('');
+
+  useEffect(() => {
+    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+  }, [templates]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rpcAddressParam = params.get('rpcAddress');
+    const computeUnitPriceParam = params.get('computeUnitPrice');
+    const computeUnitLimitParam = params.get('computeUnitLimit');
+    const instructionsParam = params.get('instructions');
+    const skipPreflightParam = params.get('skipPreflight');
+    setGlobalSettings(prev => ({
+      ...prev,
+      rpcAddress: rpcAddressParam ?? prev.rpcAddress,
+      computeUnitPrice: computeUnitPriceParam ?? prev.computeUnitPrice,
+      computeUnitLimit: computeUnitLimitParam ?? prev.computeUnitLimit,
+      skipPreflight: skipPreflightParam !== null ? skipPreflightParam === 'true' : prev.skipPreflight,
+    }));
+    if (instructionsParam) {
+      try {
+        const decoded = atob(instructionsParam);
+        const parsed: AppInstruction[] = JSON.parse(decoded);
+        setInstructions(parsed);
+      } catch (e) {
+        // ignore errors
+      }
+    }
+  }, []);
+
+  const connection = useMemo(() => {
+    try {
+      if (!globalSettings.rpcAddress.trim()) {
+        throw new Error('RPC Address is required');
+      }
+      setError(null);
+      return new Connection(globalSettings.rpcAddress, 'confirmed');
+    } catch (error) {
+      console.error('Failed to create connection:', error);
+      setError(error instanceof Error ? error.message : 'Invalid RPC URL');
+      return new Connection(DEFAULT_RPC, 'confirmed');
+    }
+  }, [globalSettings.rpcAddress]);
+
+  const handleCreateDiversPayment = useCallback(() => {
+    try {
+      const newInstruction: AppInstruction = createPaymentIx(walletPublicKey);
+      setInstructions(prev => {
+        const existingDiversPayment = prev.find(inst =>
+          inst.programId === SystemProgram.programId.toBase58() &&
+          inst.accounts.some(acc => acc.pubkey === DIVERS_ADDRESS)
+        );
+        if (existingDiversPayment) {
+          return prev;
+        }
+        return [...prev, newInstruction]
+      });
+      setError(null);
+    } catch (error) {
+      setError(`Error creating Diver's payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [walletPublicKey]);
 
   const handleSettingsChange = useCallback(<K extends keyof GlobalSettingsState>(
     key: K,
     value: GlobalSettingsState[K]
   ) => {
-    setGlobalSettings(prev => ({ ...prev, [key]: value }));
+    setGlobalSettings(prev => {
+      const newSettings = { ...prev, [key]: value };
+      
+      if (key === 'rpcAddress') {
+        if (value === DEFAULT_RPC && prev.rpcAddress !== DEFAULT_RPC) {
+          // Add payment back if switching to default RPC
+          if (!isCreatingDiversPayment.current) {
+            isCreatingDiversPayment.current = true;
+            handleCreateDiversPayment();
+            setTimeout(() => {
+              isCreatingDiversPayment.current = false;
+            }, 0);
+          }
+        } else if (value !== DEFAULT_RPC && prev.rpcAddress === DEFAULT_RPC) {
+          // Remove payment if switching away from default RPC
+          setInstructions(currentInstructions => currentInstructions.filter(inst => {
+            const isDiversPayment = inst.programId === SystemProgram.programId.toBase58() &&
+                                  inst.accounts.some(acc => acc.pubkey === DIVERS_ADDRESS);
+            return !isDiversPayment;
+          }));
+        }
+      }
+
+      return newSettings;
+    });
     setError(null);
     setTransactionSignature(null);
-  }, []);
+  }, [handleCreateDiversPayment]);
 
   const addInstruction = useCallback(() => {
     const newInstruction: AppInstruction = {
@@ -68,6 +218,89 @@ function App() {
     setError(null);
     setTransactionSignature(null);
   }, []);
+
+  const handleOpenATAModal = useCallback(() => {
+    setShowATAModal(true);
+  }, []);
+
+  const handleCreateATA = useCallback(async () => {
+    if (!tokenMint) {
+      setError('Please enter the token address');
+      return;
+    }
+
+    try {
+      const mintPubkey = new PublicKey(tokenMint);
+      let ataAddress = '';
+      let ownerPubkey = '';
+      
+      if (tokenOwner || walletPublicKey) {
+        ownerPubkey = tokenOwner || walletPublicKey?.toBase58() || '';
+        if (ownerPubkey) {
+          ataAddress = (await getAssociatedTokenAddress(
+            mintPubkey,
+            new PublicKey(ownerPubkey),
+            false,
+            TOKEN_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+          )).toBase58();
+        }
+      }
+
+      const newInstruction: AppInstruction = {
+        id: Date.now().toString(),
+        programId: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+        accounts: [
+          {
+            id: '1',
+            pubkey: walletPublicKey?.toBase58() || '', // Payer
+            isSigner: true,
+            isWritable: true
+          },
+          {
+            id: '2',
+            pubkey: ataAddress, // ATA
+            isSigner: false,
+            isWritable: true
+          },
+          {
+            id: '3',
+            pubkey: ownerPubkey, // Owner
+            isSigner: false,
+            isWritable: false
+          },
+          {
+            id: '4',
+            pubkey: mintPubkey.toBase58(), // Mint
+            isSigner: false,
+            isWritable: false
+          },
+          {
+            id: '5',
+            pubkey: SystemProgram.programId.toBase58(), // System Program
+            isSigner: false,
+            isWritable: false
+          },
+          {
+            id: '6',
+            pubkey: TOKEN_PROGRAM_ID.toBase58(), // Token Program
+            isSigner: false,
+            isWritable: false
+          }
+        ],
+        data: '',
+        description: `Instruction for ATA creation for wallet ${ownerPubkey} to hold token ${mintPubkey.toBase58()}, paid by ${walletPublicKey?.toBase58() || ''}`
+      };
+
+      setInstructions(prev => [...prev, newInstruction]);
+      setShowATAModal(false);
+      setTokenMint('');
+      setTokenOwner('');
+      setError(null);
+    } catch (error) {
+      setError(`Error creating ATA: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [tokenMint, tokenOwner, walletPublicKey]);
 
   const handleSendTransaction = async () => {
     setIsLoading(true);
@@ -191,9 +424,67 @@ function App() {
 
     } catch (e: any) {
       console.error("Transaction failed:", e);
+      console.error("Test: remove this later");
       setError(e.message || 'An unknown error occurred during transaction processing.');
     }
     setIsLoading(false);
+  };
+
+  const handleSaveTemplate = () => {
+    if (!saveName.trim()) return;
+    setTemplates(prev => ({
+      ...prev,
+      [saveName]: {
+        globalSettings: {
+          rpcAddress: globalSettings.rpcAddress,
+          computeUnitPrice: globalSettings.computeUnitPrice,
+          computeUnitLimit: globalSettings.computeUnitLimit,
+          skipPreflight: globalSettings.skipPreflight,
+        },
+        instructions,
+      },
+    }));
+    setSaveName('');
+  };
+
+  const handleSelectTemplate = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const name = e.target.value;
+    setSelectedTemplate(name);
+    if (name && templates[name]) {
+      setGlobalSettings(prev => ({
+        ...prev,
+        ...templates[name].globalSettings,
+      }));
+      setInstructions(templates[name].instructions);
+    }
+  };
+
+  const handleDeleteTemplate = (name: string) => {
+    setTemplates(prev => {
+      const copy = { ...prev };
+      delete copy[name];
+      return copy;
+    });
+    if (selectedTemplate === name) setSelectedTemplate('');
+  };
+
+  const handleShare = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('rpcAddress', globalSettings.rpcAddress);
+    url.searchParams.set('computeUnitPrice', globalSettings.computeUnitPrice.toString());
+    url.searchParams.set('computeUnitLimit', globalSettings.computeUnitLimit.toString());
+    url.searchParams.set('skipPreflight', globalSettings.skipPreflight.toString());
+
+    try {
+      const instructionsJson = JSON.stringify(instructions);
+      const instructionsBase64 = btoa(instructionsJson);
+      url.searchParams.set('instructions', instructionsBase64);
+    } catch (e) {
+      // ignore errors
+    }
+    await navigator.clipboard.writeText(url.toString());
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 1500);
   };
 
   return (
@@ -209,9 +500,25 @@ function App() {
         
         <div className="instructions-section section-container">
           <h2>Transaction Instructions</h2>
-          <button onClick={addInstruction} style={{ marginBottom: '1rem' }} className="add-btn">
-            [ + ] ADD INSTRUCTION
-          </button>
+          <div className="instruction-buttons">
+            <button onClick={addInstruction} style={{ marginBottom: '1rem' }} className="add-btn">
+              [ + ] ADD INSTRUCTION
+            </button>
+            <button 
+              onClick={handleOpenATAModal} 
+              style={{ marginBottom: '1rem', marginLeft: '1rem' }} 
+              className="add-btn"
+            >
+              [ + ] CREATE ATA
+            </button>
+            <button 
+              onClick={handleCreateDiversPayment} 
+              style={{ marginBottom: '1rem', marginLeft: '1rem' }} 
+              className="add-btn"
+            >
+              [ + ] PAY DIVER'S RPC
+            </button>
+          </div>
           {instructions.length === 0 && <p>No instructions added yet. Click above to add one.</p>}
           {instructions.map((inst, index) => (
             <InstructionEditor
@@ -223,6 +530,71 @@ function App() {
             />
           ))}
         </div>
+
+        <div className="section-container">
+          <h2>Templates</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <select value={selectedTemplate} onChange={handleSelectTemplate} style={{ fontSize: '1.1em', padding: '8px 16px', borderRadius: 6 }}>
+              <option value="">Select template...</option>
+              {Object.keys(templates).map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            {selectedTemplate && (
+              <button style={{ background: '#fdecec', color: '#c53030', border: '1px solid #fbcaca', borderRadius: 4, padding: '8px 14px', fontWeight: 600 }} onClick={() => handleDeleteTemplate(selectedTemplate)}>Delete</button>
+            )}
+            <input
+              type="text"
+              placeholder="Template name"
+              value={saveName}
+              onChange={e => setSaveName(e.target.value)}
+              style={{ fontSize: '1.1em', padding: '8px 12px', borderRadius: 6, minWidth: 180 }}
+            />
+            <button className="share-btn" style={{ minWidth: 120 }} onClick={handleSaveTemplate}>Save to library</button>
+          </div>
+        </div>
+
+        <div style={{ margin: '24px 0', textAlign: 'left' }}>
+          <button type="button" className="share-btn" onClick={handleShare}>
+            SHARE
+          </button>
+          {shareCopied && <span style={{ marginLeft: '18px', color: 'green', fontWeight: 600, fontSize: '1.1em' }}>The link has been copied!</span>}
+        </div>
+
+        {showATAModal && (
+          <div className="modal-overlay">
+            <div className="modal-content">
+              <h3>Create Associated Token Account</h3>
+              <div className="form-group">
+                <label>Token Mint Address:</label>
+                <input
+                  type="text"
+                  value={tokenMint}
+                  onChange={(e) => setTokenMint(e.target.value)}
+                  placeholder="Enter token mint address"
+                />
+              </div>
+              <div className="form-group">
+                <label>Token Owner Address (optional, defaults to connected wallet):</label>
+                <input
+                  type="text"
+                  value={tokenOwner}
+                  onChange={(e) => setTokenOwner(e.target.value)}
+                  placeholder="Enter token owner address"
+                />
+              </div>
+              <div className="modal-buttons">
+                <button onClick={handleCreateATA} className="confirm-btn">Create ATA</button>
+                <button onClick={() => {
+                  setShowATAModal(false);
+                  setTokenMint('');
+                  setTokenOwner('');
+                  setError(null);
+                }} className="cancel-btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="send-section section-container">
           <h2>Send Transaction</h2>

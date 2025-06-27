@@ -44,6 +44,19 @@ const InstructionEditor: React.FC<InstructionEditorProps> = (
     <div className="instruction-editor section-container-item">
       <div className="instruction-header">
         <h4>Instruction #{index + 1}</h4>
+        {instruction.description && (
+          <div
+            style={{
+              fontStyle: 'italic',
+              color: '#555',
+              padding: '10px 0 8px 16px',
+              maxWidth: 600,
+              wordBreak: 'break-word'
+            }}
+          >
+            {instruction.description}
+          </div>
+        )}
         <button onClick={() => onRemoveInstruction(instruction.id)} className="remove-btn small-btn">
           Remove Instruction
         </button>
