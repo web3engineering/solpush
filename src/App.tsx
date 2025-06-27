@@ -82,6 +82,7 @@ function App() {
   });
 
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null);
+  const [transactionStatus, setTransactionStatus] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showATAModal, setShowATAModal] = useState(false);
@@ -195,6 +196,7 @@ function App() {
     });
     setError(null);
     setTransactionSignature(null);
+    setTransactionStatus(null);
   }, [handleCreateDiversPayment]);
 
   const addInstruction = useCallback(() => {
@@ -207,18 +209,21 @@ function App() {
     setInstructions(prev => [...prev, newInstruction]);
     setError(null);
     setTransactionSignature(null);
+    setTransactionStatus(null);
   }, []);
 
   const updateInstruction = useCallback((id: string, updatedInstruction: AppInstruction) => {
     setInstructions(prev => prev.map(inst => inst.id === id ? updatedInstruction : inst));
     setError(null);
     setTransactionSignature(null);
+    setTransactionStatus(null);
   }, []);
 
   const removeInstruction = useCallback((id: string) => {
     setInstructions(prev => prev.filter(inst => inst.id !== id));
     setError(null);
     setTransactionSignature(null);
+    setTransactionStatus(null);
   }, []);
 
   const handleOpenATAModal = useCallback(() => {
@@ -308,6 +313,9 @@ function App() {
     setIsLoading(true);
     setError(null);
     setTransactionSignature(null);
+    setTransactionStatus(null);
+
+    let signature: string | null = null;
 
     try {
       if (instructions.length === 0) {
@@ -411,18 +419,36 @@ function App() {
       }
 
       // 6. Send Transaction
-      const signature = await connection.sendTransaction(transaction, {
+      signature = await connection.sendTransaction(transaction, {
         skipPreflight: globalSettings.skipPreflight,
       });
 
       console.log('Transaction sent with signature:', signature);
-      await connection.confirmTransaction({ 
-          signature, 
-          blockhash: transaction.message.recentBlockhash!, 
-          lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight 
-        }, 'confirmed');
-      
       setTransactionSignature(signature);
+      setTransactionStatus('UNKNOWN');
+      
+      const startTime = Date.now();
+      const interval = setInterval(async () => {
+        try {
+          if (Date.now() - startTime > 90000) {
+            setTransactionStatus('NOT LANDED');
+            clearInterval(interval);
+            return;
+          }
+
+          const status = await connection.getSignatureStatuses([signature!], {
+            searchTransactionHistory: true,
+          });
+
+          if (status && status.value && status.value[0]) {
+            const confirmationStatus = status.value[0].confirmationStatus;
+            setTransactionStatus(confirmationStatus?.toUpperCase() ?? 'CONFIRMED');
+            clearInterval(interval);
+          }
+        } catch (e) {
+          console.error('Error checking transaction status:', e);
+        }
+      }, 5000);
 
     } catch (e: any) {
       console.error("Transaction failed:", e);
@@ -611,8 +637,9 @@ function App() {
           </button>
           {transactionSignature && (
             <div className="tx-status success-message">
-              <p>Transaction Sent Successfully!</p>
+              <p>Transaction Sent!</p>
               <p>Signature: {transactionSignature}</p>
+              <p>Status: {transactionStatus || 'Sending...'}</p>
               <a 
                 href={`https://solscan.io/tx/${transactionSignature}?cluster=${globalSettings.rpcAddress.includes('devnet') ? 'devnet' : globalSettings.rpcAddress.includes('testnet') ? 'testnet' : 'mainnet-beta'}`}
                 target="_blank"
