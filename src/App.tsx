@@ -60,7 +60,7 @@ function App() {
         }
       ],
       data: dataHex,
-      description: `Instruction for Diver's RPC payment to ${diversAddress.toBase58()} by ${walletPublicKey?.toBase58() || ''}`
+      description: `Instruction for Diver's RPC payment to ${diversAddress.toBase58()}`
     };
   }
 
