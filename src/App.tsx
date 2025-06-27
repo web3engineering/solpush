@@ -60,7 +60,7 @@ function App() {
         }
       ],
       data: dataHex,
-      description: `Instruction for Diver's RPC payment to ${diversAddress.toBase58()}`
+      description: `Instruction for Diver's RPC payment`
     };
   }
 
@@ -520,7 +520,7 @@ function App() {
       <header className="app-header">
         <h1>Solana Transaction Builder</h1>
         <div className="wallet-button-container">
-          <WalletMultiButton />
+          <WalletMultiButton  />
         </div>
       </header>
       <main>
