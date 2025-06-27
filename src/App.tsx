@@ -7,7 +7,6 @@ import {
   Keypair,
   PublicKey,
   SystemProgram,
-  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import {
   getKeypairFromBs58,
@@ -17,7 +16,7 @@ import {
 import { useWallet, WalletContextState } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
-import { DEFAULT_RPC, DIVERS_ADDRESS } from './config';
+import { DEFAULT_RPC, DIVERS_ADDRESS, DIVERS_RPC, RPC_PAYMENT_LAMPORTS } from './config';
 
 interface TemplateData {
   globalSettings: Pick<GlobalSettingsState, 'rpcAddress' | 'computeUnitPrice' | 'computeUnitLimit' | 'skipPreflight'>;
@@ -38,7 +37,7 @@ function App() {
 
   function createPaymentIx(walletPublicKey: PublicKey | null) {
     const diversAddress = new PublicKey(DIVERS_ADDRESS);
-    const amount = 0.0001 * LAMPORTS_PER_SOL;
+    const amount = RPC_PAYMENT_LAMPORTS;
     const dataBuffer = Buffer.alloc(12);
     dataBuffer.writeUInt32LE(2, 0);
     dataBuffer.writeBigUInt64LE(BigInt(amount), 4);
@@ -75,6 +74,9 @@ function App() {
   }, [walletPublicKey]);
 
   const [instructions, setInstructions] = useState<AppInstruction[]>(() => {
+    if (String(DEFAULT_RPC) !== String(DIVERS_RPC)) {
+      return [];
+    }
     const initialInstruction = createInitialDiversPayment();
     return initialInstruction ? [initialInstruction] : [];
   });
@@ -170,7 +172,7 @@ function App() {
       const newSettings = { ...prev, [key]: value };
       
       if (key === 'rpcAddress') {
-        if (value === DEFAULT_RPC && prev.rpcAddress !== DEFAULT_RPC) {
+        if (value === DIVERS_RPC && prev.rpcAddress !== DIVERS_RPC) {
           // Add payment back if switching to default RPC
           if (!isCreatingDiversPayment.current) {
             isCreatingDiversPayment.current = true;
@@ -179,7 +181,7 @@ function App() {
               isCreatingDiversPayment.current = false;
             }, 0);
           }
-        } else if (value !== DEFAULT_RPC && prev.rpcAddress === DEFAULT_RPC) {
+        } else if (value !== DIVERS_RPC && prev.rpcAddress === DIVERS_RPC) {
           // Remove payment if switching away from default RPC
           setInstructions(currentInstructions => currentInstructions.filter(inst => {
             const isDiversPayment = inst.programId === SystemProgram.programId.toBase58() &&
@@ -584,7 +586,13 @@ function App() {
                 />
               </div>
               <div className="modal-buttons">
-                <button onClick={handleCreateATA} className="confirm-btn">Create ATA</button>
+                <button 
+                  onClick={handleCreateATA} 
+                  className={`confirm-btn${tokenMint ? ' active' : ''}`}
+                  disabled={!tokenMint}
+                >
+                  Create ATA
+                </button>
                 <button onClick={() => {
                   setShowATAModal(false);
                   setTokenMint('');
