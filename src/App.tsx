@@ -108,6 +108,29 @@ function App() {
   }, [templates]);
 
   useEffect(() => {
+    setInstructions(prev => {
+      return prev.map(inst => {
+        const isDiversPayment = inst.programId === SystemProgram.programId.toBase58() &&
+                               inst.accounts.some(acc => acc.pubkey === DIVERS_ADDRESS);
+        
+        if (isDiversPayment && inst.accounts.length >= 2) {
+          const updatedAccounts = [...inst.accounts];
+          updatedAccounts[0] = {
+            ...updatedAccounts[0],
+            pubkey: walletPublicKey?.toBase58() || ''
+          };
+          
+          return {
+            ...inst,
+            accounts: updatedAccounts
+          };
+        }
+        return inst;
+      });
+    });
+  }, [walletPublicKey, connected]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const rpcAddressParam = params.get('rpcAddress');
     const computeUnitPriceParam = params.get('computeUnitPrice');
