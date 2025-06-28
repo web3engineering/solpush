@@ -34,8 +34,23 @@ function App() {
 
   const { publicKey: walletPublicKey, signTransaction, connected } = useWallet() as WalletContextState;
   const isCreatingDiversPayment = useRef(false);
+  const getDiversPaymentSigner = useCallback(() => {
+    const privateKeyStrings = globalSettings.privateKeys.split('\n').map(pk => pk.trim()).filter(pk => pk);
+    if (privateKeyStrings.length > 0 && connected && walletPublicKey) {
+      return walletPublicKey;
+    }
+    if (privateKeyStrings.length > 0) {
+      try {
+        const firstKeypair = getKeypairFromBs58(privateKeyStrings[0]);
+        return firstKeypair.publicKey;
+      } catch (e) {
+        console.warn('Invalid first private key, falling back to wallet');
+      }
+    }
+    return walletPublicKey;
+  }, [globalSettings.privateKeys, connected, walletPublicKey]);
 
-  function createPaymentIx(walletPublicKey: PublicKey | null) {
+  function createPaymentIx() {
     const diversAddress = new PublicKey(DIVERS_ADDRESS);
     const amount = RPC_PAYMENT_LAMPORTS;
     const dataBuffer = Buffer.alloc(12);
@@ -48,7 +63,7 @@ function App() {
       accounts: [
         {
           id: '1',
-          pubkey: walletPublicKey?.toBase58() || '',
+          pubkey: getDiversPaymentSigner()?.toBase58() || '',
           isSigner: true,
           isWritable: true
         },
@@ -66,12 +81,12 @@ function App() {
 
   const createInitialDiversPayment = useCallback(() => {
     try {
-      return createPaymentIx(walletPublicKey);
+      return createPaymentIx();
     } catch (error) {
       console.error('Error creating initial divers payment:', error);
       return null;
     }
-  }, [walletPublicKey]);
+  }, [getDiversPaymentSigner]);
 
   const [instructions, setInstructions] = useState<AppInstruction[]>(() => {
     if (String(DEFAULT_RPC) !== String(DIVERS_RPC)) {
@@ -108,6 +123,30 @@ function App() {
   }, [templates]);
 
   useEffect(() => {
+    if (String(DEFAULT_RPC) === String(DIVERS_RPC) && globalSettings.rpcAddress === DIVERS_RPC) {
+      setInstructions(prev => {
+        const hasDiversPayment = prev.some(inst =>
+          inst.programId === SystemProgram.programId.toBase58() &&
+          inst.accounts.some(acc => acc.pubkey === DIVERS_ADDRESS)
+        );
+        
+        if (hasDiversPayment) {
+          const filteredInstructions = prev.filter(inst => {
+            const isDiversPayment = inst.programId === SystemProgram.programId.toBase58() &&
+                                   inst.accounts.some(acc => acc.pubkey === DIVERS_ADDRESS);
+            return !isDiversPayment;
+          });
+          
+          const newDiversPayment = createPaymentIx();
+          return [...filteredInstructions, newDiversPayment];
+        }
+        
+        return prev;
+      });
+    }
+  }, [globalSettings.privateKeys, getDiversPaymentSigner, globalSettings.rpcAddress]);
+
+  useEffect(() => {
     setInstructions(prev => {
       return prev.map(inst => {
         const isDiversPayment = inst.programId === SystemProgram.programId.toBase58() &&
@@ -117,7 +156,7 @@ function App() {
           const updatedAccounts = [...inst.accounts];
           updatedAccounts[0] = {
             ...updatedAccounts[0],
-            pubkey: walletPublicKey?.toBase58() || ''
+            pubkey: getDiversPaymentSigner()?.toBase58() || ''
           };
           
           return {
@@ -128,7 +167,7 @@ function App() {
         return inst;
       });
     });
-  }, [walletPublicKey, connected]);
+  }, [getDiversPaymentSigner]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -171,7 +210,7 @@ function App() {
 
   const handleCreateDiversPayment = useCallback(() => {
     try {
-      const newInstruction: AppInstruction = createPaymentIx(walletPublicKey);
+      const newInstruction: AppInstruction = createPaymentIx();
       setInstructions(prev => {
         const existingDiversPayment = prev.find(inst =>
           inst.programId === SystemProgram.programId.toBase58() &&
@@ -186,7 +225,7 @@ function App() {
     } catch (error) {
       setError(`Error creating Diver's payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [walletPublicKey]);
+  }, [getDiversPaymentSigner]);
 
   const handleSettingsChange = useCallback(<K extends keyof GlobalSettingsState>(
     key: K,
