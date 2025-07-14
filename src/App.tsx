@@ -719,7 +719,7 @@ function App() {
         </div>
       </main>
       <footer>
-        <p>&copy; 2024 Solana Transaction Builder</p>
+        <p>&copy; {new Date().getFullYear()} Solana Transaction Builder</p>
       </footer>
     </div>
   );
